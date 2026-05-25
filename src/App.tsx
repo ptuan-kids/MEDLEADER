@@ -14,6 +14,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 import { blogPosts } from "./blogData";
+import { blogService, Post } from "./services/blogService";
 
 const fadeIn = {
   initial: { opacity: 0, y: 20 },
@@ -32,42 +33,115 @@ const staggerContainer = {
 export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [activeTag, setActiveTag] = useState("Tất cả");
-  const [displayedPosts, setDisplayedPosts] = useState<typeof blogPosts>([]);
+  const [displayedPosts, setDisplayedPosts] = useState<Post[]>([]);
+  const [allPosts, setAllPosts] = useState<Post[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [selectedPost, setSelectedPost] = useState<typeof blogPosts[0] | null>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const playerRef = useRef<any>(null);
 
-  const uniqueTags = ["Tất cả", ...new Set(blogPosts.map(post => post.tag))];
+  const uniqueTags: string[] = ["Tất cả", ...Array.from(new Set(allPosts.map(post => post.tag)))].map(t => String(t));
 
   useEffect(() => {
-    // Initial load: Shuffle and take 20
-    setDisplayedPosts([...blogPosts].sort(() => 0.5 - Math.random()).slice(0, 20));
+    const loadPosts = async () => {
+      try {
+        setIsLoading(true);
+        const posts = await blogService.getPosts();
+        
+        if (posts.length === 0) {
+          // If no posts in Supabase, fallback to mock data
+          const mockPosts = blogPosts as unknown as Post[];
+          setAllPosts(mockPosts);
+          setDisplayedPosts([...mockPosts].sort(() => 0.5 - Math.random()).slice(0, 20));
+        } else {
+          setAllPosts(posts);
+          setDisplayedPosts(posts.slice(0, 20));
+        }
+      } catch (error) {
+        console.error("Error loading posts:", error);
+        setFetchError("Không thể kết nối Supabase. Đang hiển thị dữ liệu mẫu.");
+        const mockPosts = blogPosts as unknown as Post[];
+        setAllPosts(mockPosts);
+        setDisplayedPosts([...mockPosts].sort(() => 0.5 - Math.random()).slice(0, 20));
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadPosts();
+
+    // Load YouTube IFrame API
+    if (!(window as any).YT) {
+      const tag = document.createElement('script');
+      tag.src = "https://www.youtube.com/iframe_api";
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+      
+      (window as any).onYouTubeIframeAPIReady = () => {
+        initYouTubePlayer();
+      };
+    } else {
+      initYouTubePlayer();
+    }
+
+    return () => {
+      // Cleanup if needed
+    };
   }, []);
+
+  const initYouTubePlayer = () => {
+    const videoId = "5yx6BWlEVcY"; // Chill Lofi Hip Hop
+    playerRef.current = new (window as any).YT.Player('youtube-player', {
+      height: '0',
+      width: '0',
+      videoId: videoId,
+      playerVars: {
+        autoplay: 0,
+        controls: 0,
+        loop: 1,
+        playlist: videoId,
+        modestbranding: 1,
+        rel: 0
+      },
+      events: {
+        onStateChange: (event: any) => {
+          // Sync state if player is paused/played externally (unlikely but good practice)
+          if (event.data === (window as any).YT.PlayerState.PLAYING) setIsPlaying(true);
+          if (event.data === (window as any).YT.PlayerState.PAUSED) setIsPlaying(false);
+        }
+      }
+    });
+  };
 
   const handleTagClick = (tag: string) => {
     setActiveTag(tag);
     if (tag === "Tất cả") {
-      setDisplayedPosts([...blogPosts].sort(() => 0.5 - Math.random()).slice(0, 20));
+      setDisplayedPosts([...allPosts].sort(() => 0.5 - Math.random()).slice(0, 20));
     } else {
-      setDisplayedPosts(blogPosts.filter(post => post.tag === tag));
+      setDisplayedPosts(allPosts.filter(post => post.tag === tag));
     }
   };
 
   const togglePlay = () => {
-    if (audioRef.current) {
+    if (playerRef.current && playerRef.current.playVideo) {
       if (isPlaying) {
-        audioRef.current.pause();
+        playerRef.current.pauseVideo();
       } else {
-        audioRef.current.play();
+        playerRef.current.playVideo();
       }
       setIsPlaying(!isPlaying);
     }
   };
 
   const toggleMute = () => {
-    if (audioRef.current) {
-      audioRef.current.muted = !isMuted;
+    if (playerRef.current && playerRef.current.mute) {
+      if (isMuted) {
+        playerRef.current.unMute();
+      } else {
+        playerRef.current.mute();
+      }
       setIsMuted(!isMuted);
     }
   };
@@ -81,7 +155,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-teal-100 selection:text-teal-900">
-      <audio ref={audioRef} loop src="https://assets.mixkit.co/music/preview/mixkit-hazy-after-hours-132.mp3" />
+      <div id="youtube-player" className="hidden"></div>
       
       {/* Navigation */}
       <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-slate-200">
@@ -164,7 +238,7 @@ export default function App() {
               Mạng lưới Lãnh đạo Y tế Trẻ
             </motion.span>
             
-            <motion.h1 variants={fadeIn} className="text-5xl md:text-7xl font-serif font-bold text-slate-900 mb-8 leading-tight tracking-tight">
+            <motion.h1 variants={fadeIn} className="text-4xl sm:text-5xl md:text-7xl font-serif font-bold text-slate-900 mb-8 leading-tight tracking-tight">
               Young Minds. <br className="hidden md:block" />
               <span className="text-teal-700 italic">Real Leaders.</span>
             </motion.h1>
@@ -190,7 +264,7 @@ export default function App() {
       <section id="blog" className="py-24 bg-white border-b border-slate-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-12">
-            <h2 className="text-3xl md:text-4xl font-serif font-bold text-slate-900 mb-4">Tin tức & Sự kiện</h2>
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-serif font-bold text-slate-900 mb-4">Tin tức & Sự kiện</h2>
             <p className="text-lg text-slate-600">Cập nhật những xu hướng mới nhất trong lĩnh vực y tế và công nghệ sinh học.</p>
           </div>
 
@@ -212,7 +286,18 @@ export default function App() {
             ))}
           </div>
 
+          {fetchError && (
+            <div className="bg-amber-50 text-amber-800 p-4 rounded-lg mb-8 text-center text-sm border border-amber-200">
+              {fetchError}
+            </div>
+          )}
+
           {/* Blog Grid */}
+          {isLoading ? (
+            <div className="flex justify-center items-center py-20">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-700"></div>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {displayedPosts.map((post) => (
               <motion.article
@@ -242,9 +327,10 @@ export default function App() {
                     <span className="mx-1">•</span>
                     <span className="text-teal-600 font-medium">{post.source}</span>
                   </div>
-                  <h3 className="text-xl font-bold text-slate-900 mb-3 line-clamp-2 group-hover:text-teal-700 transition-colors">
-                    {post.title}
-                  </h3>
+                  <h3 
+                    className="text-xl font-bold text-slate-900 mb-3 line-clamp-2 group-hover:text-teal-700 transition-colors"
+                    dangerouslySetInnerHTML={{ __html: post.title }}
+                  />
                   <p className="text-slate-600 text-sm leading-relaxed mb-4 line-clamp-3 flex-grow">
                     {post.excerpt}
                   </p>
@@ -258,6 +344,7 @@ export default function App() {
               </motion.article>
             ))}
           </div>
+          )}
           
           <div className="text-center mt-12">
             <button className="px-8 py-3 bg-white text-slate-700 border border-slate-200 rounded-full font-medium hover:bg-slate-50 transition-all hover:border-slate-300 shadow-sm">
@@ -273,7 +360,7 @@ export default function App() {
         {/* About / Mission Section */}
         <section className="py-24">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
               <motion.div 
                 initial={{ opacity: 0, x: -50 }}
                 whileInView={{ opacity: 1, x: 0 }}
@@ -308,7 +395,7 @@ export default function App() {
                 transition={{ duration: 0.8 }}
               >
                 <span className="text-teal-600 font-bold uppercase tracking-widest text-sm mb-2 block">Về chúng tôi</span>
-                <h2 className="text-3xl md:text-4xl font-serif font-bold text-slate-900 mb-6">
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-serif font-bold text-slate-900 mb-6">
                   Kiến tạo tương lai y tế
                 </h2>
                 <p className="text-lg text-slate-600 mb-6 leading-relaxed">
@@ -338,7 +425,7 @@ export default function App() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center max-w-3xl mx-auto mb-16">
               <span className="text-teal-600 font-bold uppercase tracking-widest text-sm mb-2 block">Giá trị</span>
-              <h2 className="text-3xl md:text-4xl font-serif font-bold text-slate-900 mb-4">Giá trị cốt lõi</h2>
+              <h2 className="text-2xl sm:text-3xl md:text-4xl font-serif font-bold text-slate-900 mb-4">Giá trị cốt lõi</h2>
               <p className="text-lg text-slate-600">Những nền tảng vững chắc giúp MedLEADERS định hình và phát triển cộng đồng.</p>
             </div>
 
@@ -400,7 +487,7 @@ export default function App() {
               </div>
               <div className="w-full md:w-2/3 text-center md:text-left">
                 <span className="text-teal-300 font-bold uppercase tracking-widest text-sm mb-2 block">Đội ngũ lãnh đạo</span>
-                <h2 className="text-3xl md:text-4xl font-serif font-bold mb-2">Phạm Anh Tuấn</h2>
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-serif font-bold mb-2">Phạm Anh Tuấn</h2>
                 <p className="text-teal-200 text-lg mb-6 uppercase tracking-widest font-medium">Founder MedLEADERS</p>
                 <blockquote className="text-2xl md:text-3xl font-serif italic leading-relaxed mb-8 text-teal-50">
                   "Chúng ta không chỉ đào tạo những bác sĩ giỏi, mà còn phải xây dựng những nhà lãnh đạo có tầm nhìn, có tâm và có khả năng thay đổi diện mạo y tế Việt Nam."
@@ -424,10 +511,10 @@ export default function App() {
         {/* Contact Section (New) */}
         <section id="contact" className="py-24 bg-white">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-16">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16">
               <div>
                 <span className="text-teal-600 font-bold uppercase tracking-widest text-sm mb-2 block">Liên hệ</span>
-                <h2 className="text-3xl md:text-4xl font-serif font-bold text-slate-900 mb-6">Kết nối với chúng tôi</h2>
+                <h2 className="text-2xl sm:text-3xl md:text-4xl font-serif font-bold text-slate-900 mb-6">Kết nối với chúng tôi</h2>
                 <p className="text-lg text-slate-600 mb-8 leading-relaxed">
                   Bạn có ý tưởng hợp tác, muốn tham gia mạng lưới hay chỉ đơn giản là muốn chia sẻ câu chuyện của mình? Đừng ngần ngại liên hệ với MedLEADERS.
                 </p>
@@ -570,28 +657,50 @@ export default function App() {
                   <span className="text-teal-600 font-medium">{selectedPost.source}</span>
                 </div>
                 
-                <h2 className="text-2xl sm:text-4xl font-serif font-bold text-slate-900 mb-6 leading-tight">
-                  {selectedPost.title}
-                </h2>
+                <h2 
+                  className="text-2xl sm:text-4xl font-serif font-bold text-slate-900 mb-6 leading-tight"
+                  dangerouslySetInnerHTML={{ __html: selectedPost.title }}
+                />
                 
-                <div className="prose prose-slate prose-teal max-w-none">
-                  <p className="text-lg text-slate-700 font-medium leading-relaxed mb-6">
-                    {selectedPost.excerpt}
-                  </p>
-                  <p className="text-slate-600 leading-relaxed mb-4">
-                    Đây là nội dung chi tiết của bài viết. Trong môi trường thực tế, nội dung này sẽ được tải từ cơ sở dữ liệu hoặc CMS. Hiện tại, đây là văn bản mô phỏng để thể hiện giao diện của bài viết khi được mở rộng.
-                  </p>
-                  <p className="text-slate-600 leading-relaxed mb-4">
-                    MedLEADERS cam kết mang đến những thông tin cập nhật, chính xác và chuyên sâu nhất về các lĩnh vực Y tế số, Khởi nghiệp, Phản biện - Tranh luận và nhiều chủ đề quan trọng khác nhằm hỗ trợ các nhà lãnh đạo y tế trẻ tại Việt Nam.
-                  </p>
-                  <h3 className="text-xl font-bold text-slate-900 mt-8 mb-4">Phân tích chuyên sâu</h3>
-                  <p className="text-slate-600 leading-relaxed mb-4">
-                    Sự phát triển của công nghệ đang định hình lại toàn bộ hệ sinh thái chăm sóc sức khỏe. Từ việc ứng dụng trí tuệ nhân tạo trong chẩn đoán hình ảnh đến việc sử dụng dữ liệu lớn (Big Data) để cá nhân hóa phác đồ điều trị, mọi thứ đang thay đổi với tốc độ chóng mặt.
-                  </p>
-                  <p className="text-slate-600 leading-relaxed">
-                    Để bắt kịp xu hướng này, các chuyên gia y tế không chỉ cần trau dồi kiến thức chuyên môn mà còn phải liên tục cập nhật các kỹ năng mới về quản lý, công nghệ và tư duy đổi mới sáng tạo.
-                  </p>
-                </div>
+                {selectedPost.content ? (
+                  <div 
+                    className="prose prose-slate prose-teal max-w-none wp-content mb-10"
+                    dangerouslySetInnerHTML={{ __html: selectedPost.content }}
+                  />
+                ) : (
+                  <div className="prose prose-slate prose-teal max-w-none mb-10">
+                    <p className="text-lg text-slate-700 font-medium leading-relaxed mb-6">
+                      {selectedPost.excerpt}
+                    </p>
+                    <p className="text-slate-600 leading-relaxed mb-4">
+                      Đây là nội dung chi tiết của bài viết. Trong môi trường thực tế, nội dung này sẽ được tải từ cơ sở dữ liệu hoặc CMS. Hiện tại, đây là văn bản mô phỏng để thể hiện giao diện của bài viết khi được mở rộng.
+                    </p>
+                    <p className="text-slate-600 leading-relaxed mb-4">
+                      MedLEADERS cam kết mang đến những thông tin cập nhật, chính xác và chuyên sâu nhất về các lĩnh vực Y tế số, Khởi nghiệp, Phản biện - Tranh luận và nhiều chủ đề quan trọng khác nhằm hỗ trợ các nhà lãnh đạo y tế trẻ tại Việt Nam.
+                    </p>
+                    <h3 className="text-xl font-bold text-slate-900 mt-8 mb-4">Phân tích chuyên sâu</h3>
+                    <p className="text-slate-600 leading-relaxed mb-4">
+                      Sự phát triển của công nghệ đang định hình lại toàn bộ hệ sinh thái chăm sóc sức khỏe. Từ việc ứng dụng trí tuệ nhân tạo trong chẩn đoán hình ảnh đến việc sử dụng dữ liệu lớn (Big Data) để cá nhân hóa phác đồ điều trị, mọi thứ đang thay đổi với tốc độ chóng mặt.
+                    </p>
+                    <p className="text-slate-600 leading-relaxed">
+                      Để bắt kịp xu hướng này, các chuyên gia y tế không chỉ cần trau dồi kiến thức chuyên môn mà còn phải liên tục cập nhật các kỹ năng mới về quản lý, công nghệ và tư duy đổi mới sáng tạo.
+                    </p>
+                  </div>
+                )}
+
+                {selectedPost.link && (
+                  <div className="pt-8 border-t border-slate-100">
+                    <a 
+                      href={selectedPost.link} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-6 py-3 bg-teal-50 text-teal-700 rounded-xl font-medium hover:bg-teal-100 transition-colors group"
+                    >
+                      <span>Xem nguồn bài viết gốc</span>
+                      <ExternalLink className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                    </a>
+                  </div>
+                )}
               </div>
             </div>
           </motion.div>

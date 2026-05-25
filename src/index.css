@@ -14,3 +14,22 @@
     @apply font-serif;
   }
 }
+
+@layer utilities {
+  .wp-content {
+    @apply break-words;
+  }
+  .wp-content img {
+    @apply max-w-full h-auto rounded-lg my-6;
+  }
+  .wp-content iframe,
+  .wp-content video {
+    @apply max-w-full rounded-lg my-6 aspect-video;
+  }
+  .wp-content table {
+    @apply block w-full overflow-x-auto whitespace-nowrap;
+  }
+  .wp-content pre {
+    @apply max-w-full overflow-x-auto bg-slate-100 p-4 rounded-lg my-4;
+  }
+}
